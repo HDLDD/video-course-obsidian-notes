@@ -245,7 +245,8 @@ def main():
                 if r.get("url") and f"p={r['part']}" not in s:
                     soft.append((os.path.relpath(p, root), "source url missing/wrong part"))
         adir = os.path.join(lp, "assets")
-        stats.append((r["slug"], len(arts), len(os.listdir(adir)) if os.path.isdir(adir) else 0))
+        n_img = len([f for f in os.listdir(adir) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]) if os.path.isdir(adir) else 0
+        stats.append((r["slug"], len(arts), n_img))
 
     # index coverage
     for r in manifest:

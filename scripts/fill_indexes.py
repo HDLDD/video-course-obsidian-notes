@@ -40,6 +40,38 @@ def replace_last_cell(line, cell):
     return "|".join(parts) + " |"
 
 
+def rebuild_table(text, header_key, order, prefix_of, gen_row):
+    """Make one Markdown table body contain every row of `order`, in that order.
+
+    A course that gains chapters or lessons after the skeleton was written would
+    otherwise have rows nobody can add (agents are banned from editing indexes,
+    and the old loop only rewrote rows already present). Rows that match none of
+    the expected prefixes are kept, untouched, at the end.
+    """
+    cr = "\r" if "\r\n" in text else ""
+    lines = text.split("\n")
+    for i, ln in enumerate(lines):
+        if header_key in ln and ln.rstrip("\r").lstrip().startswith("|"):
+            start, j = i + 2, i + 2
+            while j < len(lines) and lines[j].rstrip("\r").lstrip().startswith("|"):
+                j += 1
+            old = lines[start:j]
+            taken, body = set(), []
+            for r in order:
+                p = prefix_of(r)
+                hit = next((k for k, l in enumerate(old)
+                            if k not in taken and l.rstrip("\r").startswith(p)), None)
+                if hit is None:
+                    body.append(gen_row(r) + cr)
+                else:
+                    taken.add(hit)
+                    body.append(old[hit])
+            body += [l for k, l in enumerate(old) if k not in taken]
+            lines[start:j] = body
+            break
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vault", required=True)
@@ -60,7 +92,7 @@ def main():
         n_art = len([f for f in os.listdir(lp) if re.match(r"^\d{2}-.*\.md$", f)
                      and not f.startswith(("00-", "99-"))])
         adir = os.path.join(lp, "assets")
-        n_img = len(os.listdir(adir)) if os.path.isdir(adir) else 0
+        n_img = len([f for f in os.listdir(adir) if f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]) if os.path.isdir(adir) else 0
         arts += n_art
         imgs += n_img
         per_chapter.setdefault(r["folder"], []).append((r["slug"], n_art, n_img))
@@ -81,11 +113,18 @@ def main():
         write(cip, "\n".join(lines))
 
     total_by_folder = {}
+    rows_by_folder = {}
     for r in rows:
         total_by_folder[r["folder"]] = total_by_folder.get(r["folder"], 0) + 1
+        rows_by_folder.setdefault(r["folder"], []).append(r)
     for folder, items in per_chapter.items():
         cip = os.path.join(root, *folder.split("/"), "00-本章索引.md")
         s = read(cip)
+        s = rebuild_table(
+            s, "| 时长 | 笔记 |", rows_by_folder[folder],
+            lambda r: f"| {r['slug']} | P{r['part']} | ",
+            lambda r: f"| {r['slug']} | P{r['part']} | {r['part_title']} | {r['duration']} | "
+            f"待整理 · [B站]({r['url']}) |")
         if len(items) == total_by_folder[folder]:
             n_art = sum(x[1] for x in items)
             nl = "\r\n" if "\r\n" in s else "\n"
@@ -107,6 +146,28 @@ def main():
                 if ln.startswith(prefix):
                     lines[i] = replace_last_cell(ln, cell)
         s = "\n".join(lines)
+        label = lambda c: "附录" if c == "0" else f"第{c}章"
+        groups = []
+        for r in rows:
+            if not groups or groups[-1][0]["chapter"] != r["chapter"]:
+                groups.append([])
+            groups[-1].append(r)
+        s = rebuild_table(
+            s, "| 讲数 | 本章索引 |", groups,
+            lambda g: f"| {label(g[0]['chapter'])} | ",
+            lambda g: f"| {label(g[0]['chapter'])} | P{g[0]['part']}-P{g[-1]['part']} | "
+            f"{g[0]['chapter_topic']} | {len(g)} | [[{g[0]['folder']}/00-本章索引\\|本章索引]] |")
+
+        def lesson_cell(r):
+            ok = os.path.isfile(os.path.join(root, *r["lesson_path"].split("/"),
+                                             "00-本讲索引.md"))
+            return f"[[{r['lesson_path']}/00-本讲索引\\|完成]]" if ok else "待整理"
+
+        s = rebuild_table(
+            s, "| 时长 | 状态 |", rows,
+            lambda r: f"| P{r['part']} | {r['slug']} | ",
+            lambda r: f"| P{r['part']} | {r['slug']} | {r['part_title']} | "
+            f"{r['duration']} | {lesson_cell(r)} |")
         s = s.replace("status: 进行中", "status: 已完成" if done == len(rows) else "status: 进行中")
         s = re.sub(r"> - 总进度：\*\*[^*]*\*\*", f"> - 总进度：**{done}/{len(rows)} 讲**", s)
         line = f"> - 已生成 {arts} 篇知识点正文、{imgs} 张截图。"
