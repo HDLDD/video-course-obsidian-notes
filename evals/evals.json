@@ -1,5 +1,5 @@
 {
-  "skill_name": "bilibili-obsidian-notes",
+  "skill_name": "video-course-obsidian-notes",
   "note": "eval 1-3 是单讲流程（需要联网下载，成本高，按需跑）；eval 4-6 专测整课批处理与校验能力，离线可跑。仓库自带 eval 5 的坏样本库 fixture，clone 下来就能直接验证校验器。",
   "evals": [
     {

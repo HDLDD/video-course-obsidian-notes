@@ -1,7 +1,7 @@
-# bilibili-obsidian-notes
+# video-course-obsidian-notes
 
 把课程/讲座视频整理成**可复习、可检索、可续做**的 Obsidian 笔记库，并且**能被脚本验证**。
-以 B 站为主，任何 `yt-dlp` 能解析的源（YouTube 等）都走同一条链路。
+以 B 站为主，抖音走专线（浏览器取 DASH 地址 → 本地下载），任何 `yt-dlp` 能解析的源（YouTube 等）走同一条链路。
 
 English: an agent skill that turns lecture videos into a structured, verified Obsidian
 knowledge base. Bilibili-first, but any yt-dlp-supported source works and keeps the same
@@ -114,7 +114,8 @@ failure modes are documented from real runs, not designed on paper.
 放到你的 agent skills 目录即可，例如：
 
 ```bash
-git clone https://github.com/HDLDD/bilibili-obsidian-notes ~/.codex/skills/bilibili-obsidian-notes
+# GitHub 仓库名仍为 bilibili-obsidian-notes，安装目录建议改成新名字
+git clone https://github.com/HDLDD/bilibili-obsidian-notes ~/.codex/skills/video-course-obsidian-notes
 # 也可以放进 Qoder / Claude Code / 其它 agent 的 skills 目录：整仓库就是一个 skill
 ```
 

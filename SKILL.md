@@ -1,12 +1,12 @@
 ---
-name: bilibili-obsidian-notes
-description: "把课程/讲座视频整理成 Obsidian 笔记库（B 站为主，也吃任何 yt-dlp 能解析的源，如 YouTube）：短讲一讲一篇，长讲按讲师自己划的小节拆成多篇知识点正文 + 本讲索引 + 扩展笔记，按章归档并回填章索引与课程索引，可选多讲并行批处理；含本地 SenseVoice 转写、1080p 关键帧提取（上传者标了章节时按章节自动取帧）、三重校验（链接/结构/内容复核）与删除前备份。只要用户给出 b23.tv/B站/YouTube 等视频链接并要求「整理成笔记」「拆解这门课」「把这门课都做了」「继续下一讲/下一章」「提取字幕精华」「做某一讲」，或要求把视频课程放进指定的 Obsidian vault，就用本 Skill——整门课的需求不要只按单讲流程做。转写默认走本地 sherpa-onnx SenseVoice，无需联网、不上传音频。"
+name: video-course-obsidian-notes
+description: "把视频课程/讲座/短视频整理成 Obsidian 笔记库（B 站、抖音、YouTube，以及任何 yt-dlp 能解析的源）：短讲一讲一篇，长讲按讲师自己划的小节拆成多篇知识点正文 + 本讲索引 + 扩展笔记，按章归档并回填章索引与课程索引，可选多讲并行批处理；支持「深度要比视频多得多」的深度模式（每讲三层：忠实转录 + 源码机理 + 工程坑，结论带 `文件:行号` 并跑引用体检）；支持 B 站合集（每集独立 BV）；抖音走「浏览器取 DASH 音视频地址 → 本地下载」的专线（yt-dlp 直连会被 cookie 挡住）；含本地 SenseVoice 转写、关键帧抽取（上传者标了章节时按章节取帧，教学类视频用板书帧核对译文）、三重校验（链接/结构/内容复核）与删除前备份。只要用户给出 b23.tv/B站/抖音v.douyin.com/YouTube 等视频链接并要求「整理成笔记」「拆解这门课」「把这门课都做了」「继续下一讲/下一章」「提取字幕精华」「做某一讲」「转录这个视频」，或要求把视频课程放进指定的 Obsidian vault，就用本 Skill——整门课的需求不要只按单讲流程做。转写默认走本地 sherpa-onnx SenseVoice，无需联网、不上传音频。"
 compatibility: "Python 3.11 + sherpa_onnx + numpy; yt-dlp, ffmpeg/ffprobe; an Obsidian vault (path set by you). Windows-first: the pitfalls table and encoding notes are from Windows + Git Bash; macOS/Linux work for download/frames/verify, transcription is portable."
 ---
 
-# Bilibili → Obsidian 课程笔记
+# 视频课程 → Obsidian 笔记
 
-把 B 站课程整理成可复习、可检索、可继续扩展的 Obsidian 笔记库。核心不是"转写全文"，而是**按讲师自己的结构**把视频落成带出处、带截图、带自测的知识点笔记，并且**能被脚本验证**。
+把 B 站 / 抖音 / YouTube 的课程整理成可复习、可检索、可继续扩展的 Obsidian 笔记库。核心不是"转写全文"，而是**按讲师自己的结构**把视频落成带出处、带截图、带自测的知识点笔记，并且**能被脚本验证**。
 
 两种模式，先判断走哪条：
 
@@ -14,8 +14,11 @@ compatibility: "Python 3.11 + sherpa_onnx + numpy; yt-dlp, ffmpeg/ffprobe; an Ob
 |---|---|---|
 | 一讲/一集，做完交付 | 单讲流程（下面 Step 1–8） | `references/note-structure.md` |
 | 整门课（十几讲到几十讲） | 先出全课结构 → 串行采集 → 派子代理写 → 脚本回填校验 | `references/batch-pipeline.md` + `references/subagent-rules.md` |
+| 「深度要比视频多得多」「不止于视频」 | **深度模式**：每讲三层（忠实/源码机理/工程与坑），结论一律带 `文件:行号` 并跑引用体检 | `references/deep-mode.md` |
+| 链接是**抖音**（`v.douyin.com/...`） | yt-dlp 直连必失败（要 cookie，Chrome 127+ 又解不开）：浏览器播起来拿两条 DASH 地址 → `scripts/douyin_media.py fetch` 下载 → 本地 SenseVoice | `references/douyin.md` |
+| 链接是**合集**、每集是独立 BV（`course_prep.py meta` 只出 1 P） | `scripts/season_meta.py` 读 `ugc_season` 生成同一个 `meta.json`，`acquire` 已按页内 `url` 下载 | `references/batch-pipeline.md` §9 |
 
-整门课**必须**换流程：单讲流程逐讲做几十遍做不完，而直接放多个代理并行会撞上四种失败（代理后台等待后结束回合、同章并行覆盖索引、越界写别人的章、报告与磁盘不符）。这些坑与对策都在 `subagent-rules.md`。
+整门课**必须**换流程：单讲流程逐讲做几十遍做不完，而直接放多个代理并行会撞上六种失败（代理后台等待后结束回合、同章并行覆盖索引、越界写别人的章、报告与磁盘不符、主代理重复派发、把子代理的断言当事实抄进索引）。这些坑与对策都在 `subagent-rules.md`。
 
 ## 产出结构
 
@@ -188,17 +191,21 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 7. 只读复核代理按章验内容，逐条验证后再改；
 8. 补章索引三节与课程索引复习路线，再处置媒体。
 
-批次大小、资源限制（`SENSE_THREADS=2`、`OPENBLAS_NUM_THREADS=1`、各代理独立 work 目录）、任务书模板、收尾清单都在 `references/subagent-rules.md`。派单前必读——四种失败的成因和对策都在里面。
+批次大小、资源限制（`SENSE_THREADS=2`、`OPENBLAS_NUM_THREADS=1`、各代理独立 work 目录）、任务书模板、收尾清单都在 `references/subagent-rules.md`。派单前必读——六种失败的成因和对策都在里面。
 
 ## 质量线
 
 - **忠于视频**：术语用幻灯片校正；不编造讲师没说过的话、不做视频没讲的题。
 - **出处可查**：每张图标"视频 mm:ss"；本讲索引给视频进度区间；frontmatter 带 `source` 分 P 链接。
+- **板书优先于 ASR**：教学类视频（尤其抖音）里讲师边讲边打字，**画面上的译文才是权威**；用 `douyin_media.py frames` 抽句末帧核对，笔记里分开标「板书原文」与「按讲解整理」。
 - **诚实标记**：不一致、看不清、疑似课件笔误 → 「待核对」+ 两种读法 + 考试口径。
 - **结构一致**：讲号、目录名、索引行、frontmatter 互相咬合，下次续做不用猜。
 - **可验证**：`verify_course.py` 到 `HARD=0`；未引用素材 0；表格无裸竖线。
+- **回到那一秒**：跑 `add_time_links.py`，让每处「视频 mm:ss」变成可点的 B站跳转（多 P 为 `?p=N&t=SS`，合集为 `?t=SS`）。只读文字回不到原话，复习时等于没有出处。
+- **截图有台账**：跑 `build_frame_ledger.py`，每讲根目录生成 `frames.json`（文件 ↔ sha256 ↔ 时间点 ↔ 源帧）。素材删了以后仍能证明截图完整、出处是哪一秒；`--check` 可查台账与文件是否漂移。
+- **代码能被 OCR 对证**：跑 `check_code_ocr.py`，本机 rapidocr 离线读帧，**把每个代码块锚定到它前面写的「视频 mm:ss」那一帧**，只在同一帧里比骨架串；"同一行但字符不同"才列（这正是 `agn`→`again` 这类错读的形状），该帧没有的代码不报。标注「笔记补充/未经编译验证」的块自动跳过；行号栏与 IDE 参数名提示已滤掉。**当筛子用**：两库实测 21 条候选里没有一条是笔记错误（`GPIO`→`GPI0`、`On`→`0n`、光标 `↓`），命中项必须回帧确认。
 - **媒体不落 vault**：vault 只放笔记/截图/字幕；原片备份后删除。
-- **先备份后删除**：备份成功 + vault 哈希前后一致，才允许删。
+- **先备份后删除**：`hash_vault.py --out before.txt` → `backup_workdir.py` → 删媒体 → `hash_vault.py --out after.txt --compare before.txt` 必须 `changed/deleted=0`（转写文本留着，重下视频比重跑 SenseVoice 便宜）。
 
 ## 故障排查
 
@@ -238,7 +245,7 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 - `scripts/course_prep.py`：整课驱动 `meta` / `manifest` / `acquire` / `keys` / `status`（幂等，可续跑）
 - `scripts/verify_course.py`：一次跑完链接、图片、结构、frontmatter、表格、覆盖、卫生度检查（`--strict` 决定退出码）
 - `scripts/fix_course_md.py`：修相对链接与表格竖线（幂等，`--dry-run` 可先看）
-- `scripts/fill_indexes.py`：按磁盘状态回填章索引与课程索引
+- `scripts/fill_indexes.py`：按磁盘状态回填章索引与课程索引；**缺行会插入**（中途扩课、加章加讲后不必手改表格）
 - `scripts/renumber_articles.py`：把误用 `00-` 开头的正文重排为 `01..NN`，同步改 frontmatter、wikilink、别名与索引表编号（幂等，`--dry-run` 可先看）
 - `scripts/bili_meta.py`：解析 b23/B站链接，列分 P
 - `scripts/source_meta.py`：其它站点（YouTube 等）归一成同一个 `meta.json`，带 `chapters`；`--from-json` 可离线调试
@@ -246,3 +253,11 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 - `scripts/frames.sh`：总览拼图与单帧/多帧截图
 - `scripts/check_obsidian_links.py`：轻量链接与锚点校验（单讲够用）
 - `scripts/backup_workdir.py`：删除前备份、校验 zip、生成 SHA256 清单
+- `scripts/hash_vault.py`：给 vault 拍 SHA-256 快照，`--compare before.txt` 直接报「改动/新增」并以此决定能不能删
+- `scripts/season_meta.py URL --out work/meta.json`：B 站**合集**（每集独立 BV）读 `ugc_season` 生成同一个 `meta.json`，每页自带 `url`
+- `scripts/audit_citations.py --vault <库> --root <源码树>`：深度模式专用——核对每条 `文件:行号` 是否真的存在，画面行号必须带标注
+- `scripts/add_time_links.py`：把「视频 mm:ss」改成可点的 B站跳转（幂等，跳过代码块）
+- `scripts/build_frame_ledger.py`：每讲写 `frames.json` 截图台账（sha256 / 时间点 / 源帧），`--check` 查漂移
+- `scripts/douyin_media.py resolve|fetch|probe|frames`：抖音短链解析、按 DASH 地址下载音/视频、读时长分辨率、按时间点抽帧（见 `references/douyin.md`）
+- `scripts/check_code_ocr.py`：本地 OCR 读帧，与逐字照录的代码比对，输出候选错读清单
+- 文件浏览器按课程上色由 vault 里的 **course-folder-colors 插件**负责（源码在 `A:\doing anything\obsidian-course-colors`，改完 `bash sync.sh`），不归本 skill 的脚本管；新建根文件夹它会自己分配色相
