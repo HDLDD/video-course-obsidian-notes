@@ -114,8 +114,8 @@ failure modes are documented from real runs, not designed on paper.
 放到你的 agent skills 目录即可，例如：
 
 ```bash
-# GitHub 仓库名仍为 bilibili-obsidian-notes，安装目录建议改成新名字
-git clone https://github.com/HDLDD/bilibili-obsidian-notes ~/.codex/skills/video-course-obsidian-notes
+# 仓库已改名为 video-course-obsidian-notes（旧名 bilibili-obsidian-notes 自动跳转）
+git clone https://github.com/HDLDD/video-course-obsidian-notes ~/.codex/skills/video-course-obsidian-notes
 # 也可以放进 Qoder / Claude Code / 其它 agent 的 skills 目录：整仓库就是一个 skill
 ```
 
