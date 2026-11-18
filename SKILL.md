@@ -157,9 +157,14 @@ python scripts/fill_indexes.py --vault "<vault>/<course_dir>" --manifest "<work>
 
 它按磁盘上真实存在的 `00-本讲索引.md` 回填章索引「笔记」列、整理状态、课程索引状态与进度。可反复跑，幂等。
 
-### Step 7 · 校验
+### Step 7 · 时间戳回填 + 校验
+
+**时间戳回填是必做步骤，不是可选项**：只读文字回不到原话，复习时等于没有出处。
+vault 装了 Media Extended 时脚本自动检测并生成 MX 格式（`?t=<秒>#t=MM:SS`，
+Obsidian 内点击即分屏播放并 seek）；没装则生成纯 B站跳转。先跑它再校验：
 
 ```bash
+python scripts/add_time_links.py --vault "<vault>/<course_dir>" --manifest "<work>/manifest.json"
 python scripts/fix_course_md.py --vault "<vault>/<course_dir>" --manifest "<work>/manifest.json"
 python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work>/manifest.json" \
         --asr "解条(?!件),悬度,酶质" --strict
@@ -206,7 +211,7 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 - **诚实标记**：不一致、看不清、疑似课件笔误 → 「待核对」+ 两种读法 + 考试口径。
 - **结构一致**：讲号、目录名、索引行、frontmatter 互相咬合，下次续做不用猜。
 - **可验证**：`verify_course.py` 到 `HARD=0`；未引用素材 0；表格无裸竖线。
-- **回到那一秒**：跑 `add_time_links.py`，让每处「视频 mm:ss」变成可点的 B站跳转（多 P 为 `?p=N&t=SS`，合集为 `?t=SS`）。只读文字回不到原话，复习时等于没有出处。
+- **回到那一秒（必做）**：跑 `add_time_links.py`（Step 7），让每处「视频 mm:ss」变成可点跳转（多 P 为 `?p=N&t=SS`，合集为 `?t=SS`）。**vault 装了 Media Extended 就必须用 MX 格式**：脚本按 `.obsidian/plugins/media-extended/` 自动检测并加 `#t=MM:SS`（query 让 B 站页 seek，hash 是 MX 的 NPT 片段；分秒补零、过 1 小时 H:MM:SS），`--media-extended` 强制、`--no-media-extended` 显式退回纯跳转。B 站走 webviewer 回退，**页内 seek 不刷新地址栏**，验证要看画面而非 URL；MX webview 未登录时试看 30 秒后弹登录墙，需在 webview 里登录一次。
 - **截图有台账**：跑 `build_frame_ledger.py`，每讲根目录生成 `frames.json`（文件 ↔ sha256 ↔ 时间点 ↔ 源帧）。素材删了以后仍能证明截图完整、出处是哪一秒；`--check` 可查台账与文件是否漂移。
 - **代码能被 OCR 对证**：跑 `check_code_ocr.py`，本机 rapidocr 离线读帧，**把每个代码块锚定到它前面写的「视频 mm:ss」那一帧**，只在同一帧里比骨架串；"同一行但字符不同"才列（这正是 `agn`→`again` 这类错读的形状），该帧没有的代码不报。标注「笔记补充/未经编译验证」的块自动跳过；行号栏与 IDE 参数名提示已滤掉。**当筛子用**：两库实测 21 条候选里没有一条是笔记错误（`GPIO`→`GPI0`、`On`→`0n`、光标 `↓`），命中项必须回帧确认。
 - **媒体不落 vault**：vault 只放笔记/截图/字幕；原片备份后删除。
@@ -262,7 +267,7 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 - `scripts/hash_vault.py`：给 vault 拍 SHA-256 快照，`--compare before.txt` 直接报「改动/新增」并以此决定能不能删
 - `scripts/season_meta.py URL --out work/meta.json`：B 站**合集**（每集独立 BV）读 `ugc_season` 生成同一个 `meta.json`，每页自带 `url`
 - `scripts/audit_citations.py --vault <库> --root <源码树>`：深度模式专用——核对每条 `文件:行号` 是否真的存在，画面行号必须带标注
-- `scripts/add_time_links.py`：把「视频 mm:ss」改成可点的 B站跳转（幂等，跳过代码块）
+- `scripts/add_time_links.py`：把「视频 mm:ss」改成可点跳转（幂等，跳过代码块）；vault 有 Media Extended 时自动加 `#t=MM:SS` 生成 MX 格式（Obsidian 内点击播放），`--media-extended` / `--no-media-extended` 可强制开关
 - `scripts/build_frame_ledger.py`：每讲写 `frames.json` 截图台账（sha256 / 时间点 / 源帧），`--check` 查漂移
 - `scripts/douyin_media.py resolve|fetch|probe|frames`：抖音短链解析、按 DASH 地址下载音/视频、读时长分辨率、按时间点抽帧（见 `references/douyin.md`）
 - `scripts/check_code_ocr.py`：本地 OCR 读帧，与逐字照录的代码比对，输出候选错读清单

@@ -61,7 +61,7 @@
 
 | 脚本 | 解决什么 | 落在哪 |
 |---|---|---|
-| `add_time_links.py` | 纯文本时间戳 → 可点的 B站跳转（`?p=N&t=SS` / 合集用 `?t=SS`），复习时一键回到原话 | 原位替换，幂等，**跳过围栏代码块** |
+| `add_time_links.py` | 纯文本时间戳 → 可点跳转（`?p=N&t=SS` / 合集用 `?t=SS`）；vault 有 Media Extended 时自动加 `#t=MM:SS` 变成 Obsidian 内可点播放 | 原位替换，幂等，**跳过围栏代码块** |
 | `build_frame_ledger.py` | 截图 ↔ sha256 ↔ 时间点 ↔ 源帧；媒体删了也能证明图没被换、出自第几秒 | 每讲根目录 `frames.json`；`--check` 查漂移 |
 | `check_code_ocr.py` | 本地 OCR 读帧，把代码块**锚定到它引用的那一帧**再比骨架串，只报"同行不同字"；已滤掉行号栏与 IDE 参数名提示 | 报告写工作目录，不进 vault |
 

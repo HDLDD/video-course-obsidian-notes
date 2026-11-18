@@ -80,9 +80,10 @@ python scripts/fill_indexes.py --vault "<vault>/<course_dir>" --manifest "<work>
 
 按磁盘实际存在的 `00-本讲索引.md` 回填章索引「笔记」列、整理状态、课程索引状态列与总进度。可反复跑。
 
-### 6 修 Markdown 缺陷 + 三重校验
+### 6 时间戳回填 + 修 Markdown 缺陷 + 三重校验
 
 ```bash
+python scripts/add_time_links.py --vault "<vault>" --manifest "<work>/manifest.json"   # 必做；vault 有 MX 自动加 #t=
 python scripts/fix_course_md.py --vault "<vault>" --manifest "<work>/manifest.json"   # 相对链接、表格竖线
 python scripts/verify_course.py --vault "<vault>" --manifest "<work>/manifest.json" \
         --asr "解条(?!件),悬度,酶质" --strict

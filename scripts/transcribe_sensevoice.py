@@ -76,6 +76,22 @@ def to_wav(input_path: Path, output_path: Path) -> None:
     )
 
 
+def wav_is_16k_mono(path: Path) -> bool:
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=sample_rate,channels,codec_name",
+             "-of", "json", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        s = json.loads(r.stdout)["streams"][0]
+        return (s.get("codec_name") == "pcm_s16le"
+                and s.get("sample_rate") == "16000"
+                and s.get("channels") == 1)
+    except Exception:
+        return False
+
+
 def get_duration(wav_path: Path) -> float:
     result = subprocess.run(
         [
@@ -180,8 +196,19 @@ def main() -> int:
         raise SystemExit(f"Input not found: {input_path}")
 
     wav_path = out_dir / "audio_16k.wav"
-    print(f"Converting to 16k mono wav: {wav_path}")
-    to_wav(input_path, wav_path)
+    if input_path == wav_path:
+        # SKILL Step 2 pre-extracts audio_16k.wav into the work dir; converting
+        # a file onto itself makes ffmpeg refuse (input == output).
+        if wav_is_16k_mono(wav_path):
+            print(f"Input already 16k mono wav, skip conversion: {wav_path}")
+        else:
+            tmp_path = out_dir / "audio_16k.tmp.wav"
+            print(f"Re-encoding in place via temp file: {wav_path}")
+            to_wav(input_path, tmp_path)
+            tmp_path.replace(wav_path)
+    else:
+        print(f"Converting to 16k mono wav: {wav_path}")
+        to_wav(input_path, wav_path)
 
     duration = get_duration(wav_path)
     print(f"Duration: {duration:.1f}s; chunk: {chunk_seconds}s; threads: {args.threads}")
