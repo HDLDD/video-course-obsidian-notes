@@ -50,7 +50,7 @@ python scripts/course_prep.py manifest --work "<work>" --map <work>/chapters.jso
 SENSE_THREADS=2 python scripts/course_prep.py acquire --work "<work>" e07 7
 ```
 
-幂等：`video.mp4` 在就跳过下载，`audio_16k.wav` 在就跳过抽音轨，`transcript.txt` 在就跳过转写，总览拼图在就跳过。**中断后重跑同一命令即可续做。**
+幂等：`video.mp4` 在就跳过下载，`audio_16k.wav` 在就跳过抽音轨，`transcript.txt` 在就跳过转写，总览拼图在就跳过，`frames/smart/shots.json` 参数与视频指纹没变就跳过 smart shots。**中断后重跑同一命令即可续做。**
 
 一次跑多讲时写个小驱动串行调用（不要并行，见 subagent-rules.md）：
 
@@ -106,7 +106,7 @@ python scripts/verify_course.py --vault "<vault>" --manifest "<work>/manifest.js
 - 章索引三节（本章主线/公式速查/易错点）与课程索引「复习路线」补完；
 - 工作目录（视频+音频）通常 1～3 GB：先备份、再哈希、后删，见 SKILL.md Step 8；
 - vault 只留笔记、截图、字幕原文。
-- **删之前先 `grep` 笔记里有没有引用工作目录的证据路径**（`e1xx/keyframes/t480.png`、`e1xx/frames/overview_01.jpg`、`e1xx/transcribe/transcript.txt`）。进阶批次开始把「出处帧」写进正文与索引来支撑「待核对」「课件有错」的判断，这些引用一旦断链，笔记看起来完好、证据却没了。所以清理的默认删法是 **只删 `video.mp4` + `*.wav`**（占 96% 体积，且 `acquire` 可重下），保留 keyframes/总览图/转写；删完重跑一次引用解析 + `hash_vault.py --compare`。
+- **删之前先 `grep` 笔记里有没有引用工作目录的证据路径**（`e1xx/keyframes/t480.png`、`e1xx/frames/overview_01.jpg`、`e1xx/transcribe/transcript.txt`）。进阶批次开始把「出处帧」写进正文与索引来支撑「待核对」「课件有错」的判断，这些引用一旦断链，笔记看起来完好、证据却没了。所以清理的默认删法是 **只删 `video.mp4` + `*.wav`**（占 96% 体积，且 `acquire` 可重下），保留 keyframes/总览图/`frames/smart/`/转写；删完重跑一次引用解析 + `hash_vault.py --compare`。
 
 ### 9 给已完成的课补第二路分 P（增量补课）
 

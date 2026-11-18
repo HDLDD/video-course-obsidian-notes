@@ -7,7 +7,9 @@ Subcommands
                                              (Bilibili API, or yt-dlp for other sources;
                                              --playlist treats the URL as a list)
   manifest  --work DIR --map map.json --vault DIR   build manifest.json + vault skeleton + index stubs
-  acquire   --work DIR EP PAGE                download + transcribe + contact sheets (idempotent)
+  acquire   --work DIR EP PAGE                download + transcribe + contact sheets
+                                             + content-aware smart shots (idempotent)
+  shots     --work DIR EP [--force]           re-run smart shots alone (frames/smart)
   keys      --work DIR EP [90,210,...]       extract 1080p frames -> work/EP/keyframes
   keys      --work DIR EP --from-chapters    one frame per uploader-marked chapter
   status    --work DIR                        which episodes already have video/transcript/sheets
@@ -204,6 +206,12 @@ def write_indexes(vault: Path, rows, meta, force=False):
         by_ch.setdefault(r["chapter"], []).append(r)
     order = [c for c in by_ch if c != "0"] + ([c for c in by_ch if c == "0"])
     label = lambda c: "附录" if c == "0" else f"第{c}章"
+    # 抖音等非线性分P来源：措辞与链接标签随 source 切换，B站口径保持字节级不变
+    dy = (meta.get("source") or "bilibili") == "douyin"
+    site = "抖音" if dy else "B站"
+    pword = "序" if dy else "分 P"
+    video_line = (f"> - 视频：[抖音 {meta.get('id') or meta['title']}]({meta['series_url']}) · 作者：{meta['owner']}"
+                  if dy else f"> - 视频：[{meta['bvid']}]({meta['series_url']}) · UP：{meta['owner']}")
     for ch in order:
         items = by_ch[ch]
         topic = items[0]["chapter_topic"]
@@ -214,12 +222,12 @@ def write_indexes(vault: Path, rows, meta, force=False):
                 f'course: "{meta["title"]}"', f'chapter: "{ch}"', "type: 章索引",
                 "tags:", "  - 课程笔记", "  - 章索引", "---", "", f"# {label(ch)} · {topic}", "",
                 "> [!info] 本章信息",
-                f"> - 视频：[{meta['bvid']}]({meta['series_url']}) · UP：{meta['owner']}",
+                video_line,
                 "> - 「笔记」列由 fill_indexes.py 回填，子代理不要编辑本文件。", "",
-                "## 本讲一览", "", "| 讲 | 分 P | 视频原标题 | 时长 | 笔记 |",
+                "## 本讲一览", "", f"| 讲 | {pword} | 视频原标题 | 时长 | 笔记 |",
                 "| --- | --- | --- | --- | --- |"]
         body = [f"| {r['slug']} | P{r['part']} | {r['part_title']} | {r['duration']} | "
-                f"待整理 · [B站]({r['url']}) |" for r in items]
+                f"待整理 · [{site}]({r['url']}) |" for r in items]
         tail = ["", f"> [!warning] 整理状态", f"> 本章 {len(items)} 讲待整理。", "",
                 "## 本章主线", "", "（各讲完成后补充：本章讲什么、与上下游章节的关系。）", "",
                 "## 公式速查", "", "（各讲完成后补充。）", "", "## 易错点", "",
@@ -234,10 +242,16 @@ def write_indexes(vault: Path, rows, meta, force=False):
                for c in order for r in by_ch[c]]
     total = sum(r["duration_s"] for r in rows)
     hours = f"{total // 3600}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+    fm_id = f'source: "douyin"\nid: "{meta.get("id") or ""}"' if dy else f'bvid: "{meta["bvid"]}"'
+    owner_word = "作者" if dy else "UP 主"
+    course_video = (f"> - 视频：[抖音 {meta.get('id') or meta['title']}]({meta['series_url']})"
+                    if dy else f"> - 视频：[{meta['bvid']}]({meta['series_url']})")
+    count_line = f"> - 共 **{len(rows)} 条视频**，总时长 **{hours}**。" if dy else \
+                 f"> - 共 **{len(rows)} 个分 P**，总时长 **{hours}**。"
     course = f'''---
 title: "{meta['title']} · 课程索引"
 course: "{meta['title']}"
-bvid: "{meta['bvid']}"
+{fm_id}
 type: 课程索引
 status: 进行中
 tags:
@@ -247,9 +261,9 @@ tags:
 # {meta['title']} · 课程索引
 
 > [!info] 课程信息
-> - UP 主：{meta['owner']}
-> - 视频：[{meta['bvid']}]({meta['series_url']})
-> - 共 **{len(rows)} 个分 P**，总时长 **{hours}**。
+> - {owner_word}：{meta['owner']}
+{course_video}
+{count_line}
 > - 按章归档；每讲一个文件夹，长讲按讲师自己划的小节拆成多篇知识点正文。
 
 > [!abstract] 进度
@@ -257,7 +271,7 @@ tags:
 
 ## 章节导航
 
-| 章 | 分 P | 主题 | 讲数 | 本章索引 |
+| 章 | {pword} | 主题 | 讲数 | 本章索引 |
 | --- | --- | --- | --- | --- |
 {chr(10).join(nav)}
 
@@ -323,6 +337,23 @@ def contact_sheets(d: Path, video: Path):
           f" (12 per sheet, {SHEET_INTERVAL}s apart)")
 
 
+def smart_shots(d: Path, video: Path, force=False):
+    """Content-aware keyframes next to the fixed-grid overview (see smart_shots.py).
+
+    The overview stays for humans to plan sections; smart shots are what the
+    notes should embed, because a fixed grid misses short-lived complete states.
+    SKIP_SMART_SHOTS=1 opts out (e.g. a box without numpy/ffmpeg pipe budget).
+    """
+    if os.environ.get("SKIP_SMART_SHOTS") == "1":
+        print("smart shots skipped (SKIP_SMART_SHOTS=1)")
+        return
+    cmd = [sys.executable, str(HERE / "smart_shots.py"),
+           "--video", str(video), "--out", str(d / "frames" / "smart")]
+    if force:
+        cmd.append("--force")
+    run(cmd)
+
+
 def download_for(meta: dict, page: int):
     """(url, format selector, extra args) for one lesson.
 
@@ -361,6 +392,15 @@ def cmd_acquire(a):
     else:
         print("transcript exists, skip transcribe")
     contact_sheets(d, video)
+    smart_shots(d, video)
+
+
+def cmd_shots(a):
+    d = Path(a.work) / a.ep
+    video = d / "video.mp4"
+    if not video.exists():
+        raise SystemExit(f"{video} missing; run acquire first")
+    smart_shots(d, video, force=a.force)
 
 
 def chapter_starts(work: Path, ep: str, offset: int):
@@ -407,7 +447,10 @@ def cmd_status(a):
         v = (d / "video.mp4").exists()
         t = (d / "transcribe" / "transcript.txt").exists()
         n = len(list((d / "frames").glob("overview_*.jpg")))
-        print(f"{d.name:>5}  video={'y' if v else 'n'}  transcript={'y' if t else 'n'}  sheets={n}")
+        sj = d / "frames" / "smart" / "shots.json"
+        nsm = len(json.loads(sj.read_text(encoding="utf-8"))["picks"]) if sj.exists() else 0
+        print(f"{d.name:>5}  video={'y' if v else 'n'}  transcript={'y' if t else 'n'}"
+              f"  sheets={n}  smart={nsm}")
 
 
 def main():
@@ -433,6 +476,11 @@ def main():
     ac.add_argument("ep")
     ac.add_argument("page", type=int)
     ac.set_defaults(func=cmd_acquire)
+    sh = sp.add_parser("shots")
+    sh.add_argument("--work", required=True)
+    sh.add_argument("ep")
+    sh.add_argument("--force", action="store_true")
+    sh.set_defaults(func=cmd_shots)
     k = sp.add_parser("keys")
     k.add_argument("--work", required=True)
     k.add_argument("ep")

@@ -97,7 +97,7 @@ cd "<vault>" && for d in 第6章-*/*/ ; do printf "%-40s md=%s\n" "$d" "$(ls "$d
 
 你负责的讲：
 - slug 5-2 → P7「<视频原标题>」47:12 → 讲文件夹 第5章-…/5-2-…/（含 assets/）
-- 素材：<work>/e07/transcribe/transcript.txt、transcript.json、frames/overview_*.jpg
+- 素材：<work>/e07/transcribe/transcript.txt、transcript.json、frames/overview_*.jpg、frames/smart/shots.txt + snap/（正文配图优先 smart shots，总览只用来定分节）
 - 拆 6~9 篇正文 + 00-本讲索引.md + 99-扩展笔记.md
 
 抽帧：python <work>/course_prep.py keys --work <work> e07 "秒1,秒2"  → e07/keyframes/t<秒>.png

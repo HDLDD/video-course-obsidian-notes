@@ -1,6 +1,6 @@
 ---
 name: video-course-obsidian-notes
-description: "把视频课程/讲座/短视频整理成 Obsidian 笔记库（B 站、抖音、YouTube，以及任何 yt-dlp 能解析的源）：短讲一讲一篇，长讲按讲师自己划的小节拆成多篇知识点正文 + 本讲索引 + 扩展笔记，按章归档并回填章索引与课程索引，可选多讲并行批处理；支持「深度要比视频多得多」的深度模式（每讲三层：忠实转录 + 源码机理 + 工程坑，结论带 `文件:行号` 并跑引用体检）；支持 B 站合集（每集独立 BV）；抖音走「浏览器取 DASH 音视频地址 → 本地下载」的专线（yt-dlp 直连会被 cookie 挡住）；含本地 SenseVoice 转写、关键帧抽取（上传者标了章节时按章节取帧，教学类视频用板书帧核对译文）、三重校验（链接/结构/内容复核）与删除前备份。只要用户给出 b23.tv/B站/抖音v.douyin.com/YouTube 等视频链接并要求「整理成笔记」「拆解这门课」「把这门课都做了」「继续下一讲/下一章」「提取字幕精华」「做某一讲」「转录这个视频」，或要求把视频课程放进指定的 Obsidian vault，就用本 Skill——整门课的需求不要只按单讲流程做。转写默认走本地 sherpa-onnx SenseVoice，无需联网、不上传音频。"
+description: "把视频课程/讲座/短视频整理成 Obsidian 笔记库（B 站、抖音、YouTube，以及任何 yt-dlp 能解析的源）：短讲一讲一篇，长讲按讲师自己划的小节拆成多篇知识点正文 + 本讲索引 + 扩展笔记，按章归档并回填章索引与课程索引，可选多讲并行批处理；支持「深度要比视频多得多」的深度模式（每讲三层：忠实转录 + 源码机理 + 工程坑，结论带 `文件:行号` 并跑引用体检）；支持 B 站合集（每集独立 BV）；抖音走「浏览器取 DASH 音视频地址 → 本地下载」的专线（yt-dlp 直连会被 cookie 挡住）；含本地 SenseVoice 转写、内容感知截帧（smart shots：画面安定且内容量最大时才截，补固定网格漏掉的短暂完整状态）与关键帧抽取（上传者标了章节时按章节取帧，教学类视频用板书帧核对译文）、三重校验（链接/结构/内容复核）与删除前备份。只要用户给出 b23.tv/B站/抖音v.douyin.com/YouTube 等视频链接并要求「整理成笔记」「拆解这门课」「把这门课都做了」「继续下一讲/下一章」「提取字幕精华」「做某一讲」「转录这个视频」，或要求把视频课程放进指定的 Obsidian vault，就用本 Skill——整门课的需求不要只按单讲流程做。转写默认走本地 sherpa-onnx SenseVoice，无需联网、不上传音频。"
 compatibility: "Python 3.11 + sherpa_onnx + numpy; yt-dlp, ffmpeg/ffprobe; an Obsidian vault (path set by you). Windows-first: the pitfalls table and encoding notes are from Windows + Git Bash; macOS/Linux work for download/frames/verify, transcription is portable."
 ---
 
@@ -107,17 +107,22 @@ python scripts/transcribe_sensevoice.py --input "<work>/audio_16k.wav" --out-dir
 
 **转写只是草稿。** SenseVoice 会把术语听成同音字（麦克斯韦←麦克斯/麦克威、坡印廷←坡形亭、时谐场←实写场、媒质←酶质、趋肤←曲幅、唯一性←维星…）。写笔记前先按幻灯片校正，并为该课整理一张纠错表放进工作目录的 GUIDE 里。
 
-### Step 4 · 缩略总览 + 按需截帧
+### Step 4 · 缩略总览 + 内容感知截帧 + 按需补帧
 
 ```bash
 bash scripts/frames.sh contact-sheet "<work>/video.mp4" "<work>/frames"     # 5 秒/格
 # 长讲用 15 秒/格更省事：SHEET_INTERVAL=15 python scripts/course_prep.py acquire --work "<work>" e07 7
+# acquire 已自动跑内容感知截帧；单独重跑：
+python scripts/course_prep.py shots --work "<work>" e07            # 加 --force 强制重算
+python scripts/smart_shots.py --video "<work>/video.mp4" --out "<work>/frames/smart"
 bash scripts/frames.sh snapshots "<work>/video.mp4" "<work>/keyframes" 35 170 300
 python scripts/course_prep.py keys --work "<work>" e07 "35,170,300"
 python scripts/course_prep.py keys --work "<work>" e07 --from-chapters       # 有官方章节时：一节一帧
 ```
 
-每张总览 4×3=12 格；5 秒档第 N 格 ≈ `(N-1)×5` 秒，15 秒档 ≈ `(N-1)×15` 秒。先看总览定分节，再挑关键时间点截 1080p 原帧。
+每张总览 4×3=12 格；5 秒档第 N 格 ≈ `(N-1)×5` 秒，15 秒档 ≈ `(N-1)×15` 秒。**总览用来定分节，正文配图优先用 smart shots**：固定网格落在动画中途、漏掉短暂出现的完整状态（实测 9 分钟 3D 动画课 47 个关键状态里 11 个在旧网格 ±5 秒内不存在）。`frames/smart/` 里 `shots.txt` 一行一帧（`[mm:ss] 选帧理由 edge=内容量 文件`）、`snap/` 原分辨率帧、`montage_pN.jpg` 拼图、`shots.json` 带参数与视频指纹（幂等续跑）。
+
+smart shots 的判据是"画面安定且内容量够大"：先抠掉底部字幕条（字幕每句都变，不抠就检测不到安定），按场景切分后取平台期里离平台中位帧最近的高内容帧（中位帧能避开移动遮挡）；整场没有平台的连续动画改取内容量局部极大；每场保证一张内容峰值帧；空白开场被门限剔除。参数默认值在 `smart_shots.py`（2fps、平台差<1.1 持续≥1.5s、门限 max(4.5, 0.55×场景峰值)、去重 4.2），9 分钟视频约 30 秒跑完。**已知边界**：遮挡物若整个平台期静止不动，单平台救不回来，需跨平台模板或句末帧；真人讲话段没有平台时兜底也会触发，这类课仍以总览+章节帧为主、smart shots 只取图形插入段。
 
 `--from-chapters` 会按每个章节起点 +3 秒（`--chapter-offset` 可调，避开翻页动画）各截一帧，并把
 `[mm:ss] 小节名` 写进 `<work>/EP/chapters.txt`——这张表就是 Step 5 的拆篇依据，比看总览猜准。
@@ -125,7 +130,7 @@ python scripts/course_prep.py keys --work "<work>" e07 --from-chapters       # �
 
 本机**不要给 ffmpeg 加 `drawtext`**（fontconfig 不全，会段错误）；时间靠格子序号换算。
 
-选图原则：优先定义页、对比表、框图、公式推导、波形/场图、例题板书；每篇 1–3 张、每讲 3–6 张；每张在笔记里写"视频 mm:ss：这张图说明了什么"，并核对**该时刻画面真的是这个内容**。
+选图原则：优先定义页、对比表、框图、公式推导、波形/场图、例题板书；每篇 1–3 张、每讲 3–6 张（smart shots 候选可能多于这个数，按 `shots.txt` 的内容量与理由挑，不要全塞）；每张在笔记里写"视频 mm:ss：这张图说明了什么"，并核对**该时刻画面真的是这个内容**。
 
 ### Step 5 · 写正文 + 本讲索引 + 扩展笔记
 
@@ -242,7 +247,8 @@ python scripts/verify_course.py --vault "<vault>/<course_dir>" --manifest "<work
 
 脚本：
 
-- `scripts/course_prep.py`：整课驱动 `meta` / `manifest` / `acquire` / `keys` / `status`（幂等，可续跑）
+- `scripts/course_prep.py`：整课驱动 `meta` / `manifest` / `acquire` / `shots` / `keys` / `status`（幂等，可续跑；`acquire` 顺带跑 smart shots，`SKIP_SMART_SHOTS=1` 可关）
+- `scripts/smart_shots.py`：内容感知截帧（字幕条裁掉→场景切分→平台期选帧→连续动画取内容局部极大→去重），出 `shots.json/txt` + `snap/` + 拼图；固定网格漏掉的短暂完整状态靠它补
 - `scripts/verify_course.py`：一次跑完链接、图片、结构、frontmatter、表格、覆盖、卫生度检查（`--strict` 决定退出码）
 - `scripts/fix_course_md.py`：修相对链接与表格竖线（幂等，`--dry-run` 可先看）
 - `scripts/fill_indexes.py`：按磁盘状态回填章索引与课程索引；**缺行会插入**（中途扩课、加章加讲后不必手改表格）
