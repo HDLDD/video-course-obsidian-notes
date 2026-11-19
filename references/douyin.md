@@ -92,6 +92,12 @@ python scripts/douyin_media.py frames --video work/v1/video.mp4 \
 3. 用 `![]()` 嵌 2–3 张到笔记里（宽度压到 1200），并在笔记里区分
    「板书原文」和「按讲解整理」，别把整理稿说成板书。
 
+acquire 有视频时会自动跑 `scripts/smart_shots.py`（内容感知截帧：场景切分→平台期→
+内容量最大帧）→ `frames/smart/shots.txt + snap/`。板书边讲边写的课，平台期≈讲师停顿，
+选帧天然落在写满的时刻；仍与句末帧互相核对。按视频类型加参数（PPT 红笔/黄高亮标注课
+`--ink-split 0.003 --masked-dedup`、IDE 录屏 `--masked-dedup`，打字板/动画/公式用默认），
+见 SKILL.md Step 4。
+
 ## 6 坑
 
 - **别用 `--cookies-from-browser`**：DPAPI 解密必失败，浪费时间。

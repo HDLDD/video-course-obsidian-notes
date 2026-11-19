@@ -25,14 +25,16 @@ A:\doing anything\shot_timing\report.md and A:\doing anything\shot_types\report.
      seconds. Plateaus are split recursively when their first/last quarter
      medians differ (> --split-diff): PPT page turns are often slow fades whose
      per-frame diff never leaves the plateau band, so one plateau can span
-     several pages. With --ink-split X (e.g. 0.01, opt-in) plateaus also split
-     on sustained ink steps >= X: PPT pen/highlighter annotation adds ink while
-     per-frame diff stays ~0, so one plateau can span six annotation states.
+     several pages. With --ink-split X (e.g. 0.003, opt-in, pair with
+     --masked-dedup) plateaus also split on sustained ink steps >= X: PPT
+     pen/highlighter annotation adds ink while per-frame diff stays ~0, so one
+     plateau can span six annotation states whose global frame diff is ~1.
      Pick the plateau frame with enough content that is closest
      to the plateau's per-pixel median -- the median ignores a moving occluder
      (cursor, hand, picture-in-picture), dodging transient occlusion.
   5. content gate = edge >= max(--gate-abs, 0.75*plateau max) AND
-     (ink >= --ink-gate OR edge >= 0.75*max edge within +/-20s).
+     (ink >= --ink-gate OR edge >= 0.75*max edge within +/-20s INSIDE the scene
+     with ink >= 0.025, so end cards cannot certify themselves as content).
      The old scene-wide relative gate killed sparse-but-real pages in long
      scenes (a 4-min PPT window yielded 3 shots, an IDE window 3); ink alone
      kills dark neon strokes (low ink, high edge), hence the disjunction.
@@ -181,20 +183,27 @@ def scene_cuts(t, e, d, spike):
     return sorted(cuts)
 
 
-def pick_scene(seg, t, d, e, ink, loc, raw, a):
+def pick_scene(seg, t, d, e, ink, raw, a):
     """One scene -> list of picks. seg = frame indices inside the scene."""
     emax = max(e[i] for i in seg)
     scene = []
+    # local content reference stays inside the scene: a denser neighbouring
+    # scene must not raise the bar for this scene's sparse-but-real pages
+    locs = {i: max(e[j] for j in seg if abs(t[j] - t[i]) <= 20) for i in seg}
 
     def small(i):
         return raw[i]["small"].astype(np.float32)
 
     def rich(i):
-        return ink[i] >= a.ink_gate or e[i] >= 0.75 * loc[i]
+        # the local-density arm must not certify background-only frames (end
+        # cards, fades): inside a tiny sparse scene it would otherwise always
+        # pass. 0.025 ink sits above end-card noise (0.021) and below real
+        # sparse content (neon overview 0.031).
+        return ink[i] >= a.ink_gate or (e[i] >= 0.75 * locs[i] and ink[i] >= 0.025)
 
-    def split_plateau(s, en, depth=0):
+    def split_plateau(s, en, depth=0, cap=3):
         n = en - s + 1
-        if n < 8 or depth >= 3:
+        if n < 8 or depth >= cap:
             return [(s, en)]
         q = max(2, n // 4)
         m1 = np.median(np.stack([small(k) for k in range(s, s + q)]), axis=0)
@@ -205,15 +214,27 @@ def pick_scene(seg, t, d, e, ink, loc, raw, a):
         elif a.ink_split > 0:
             # PPT pen annotations: red circles / yellow highlights add (or erase)
             # ink while frame diff stays < 1 (low motion). Detect sustained ink
-            # steps: 2s median after minus 2s median before, split at strongest.
+            # steps: 3s median before vs 6s median after (the long after-window
+            # ignores a pen tip passing through, which is a 2s transient, not a
+            # new state). Split at the strongest step, never into <5s fragments.
             sm = np.convolve(ink[s:en + 1], np.ones(5) / 5, mode="same")
-            gain, m = 0.0, -1
-            for k in range(s + 4, en - 4):
-                g = abs(float(np.median(sm[k + 1:k + 5]) - np.median(sm[k - 4:k])))
-                if g > gain:
-                    gain, m = g, k
-            if m < 0 or gain < a.ink_split:
+            wb, wa = max(4, int(3 * a.fps)), max(8, int(6 * a.fps))
+            frag = int(5 * a.fps)
+            if n < wb + wa + 2:
                 return [(s, en)]
+            gain, m = 0.0, -1
+            for k in range(wb, n - wa):  # sm is relative to s
+                g = abs(float(np.median(sm[k + 1:k + 1 + wa])
+                              - np.median(sm[k - wb:k])))
+                if g > gain:
+                    gain, m = g, s + k
+            if m < 0 or gain < a.ink_split or m - s < frag or en - m < frag:
+                return [(s, en)]
+            if m - s < 3 or en - m < 3:
+                return [(s, en)]
+            # ink chains may go one level deeper than the validated D chains
+            return split_plateau(s, m - 1, depth + 1, 4) + \
+                split_plateau(m + 1, en, depth + 1, 4)
         else:
             return [(s, en)]
         if m - s < 3 or en - m < 3:
@@ -383,9 +404,10 @@ def main():
     ap.add_argument("--spike", type=float, default=12.0)
     ap.add_argument("--split-diff", type=float, default=6.0)
     ap.add_argument("--ink-split", type=float, default=0.0,
-                    help="split plateaus on sustained ink steps >= this (e.g. 0.01): "
-                         "for PPT lectures with progressive pen/highlighter annotation "
-                         "where frame diff stays ~0 but ink accumulates")
+                    help="split plateaus on sustained ink steps >= this (e.g. 0.003, "
+                         "pair with --masked-dedup): for PPT lectures with progressive "
+                         "pen/highlighter annotation where frame diff stays ~0 but ink "
+                         "accumulates")
     ap.add_argument("--dedup", type=float, default=4.2)
     ap.add_argument("--masked-dedup", action="store_true",
                     help="dedup on ink pixels only: for IDE/code screencasts where "
@@ -415,15 +437,13 @@ def main():
     print(f"smart shots: {video.name} -> {out}", flush=True)
     raw, dur = read_frames(video, a.fps, a.crop)
     t, d, e, ink = frame_metrics(raw)
-    half = int(20 * a.fps)
-    loc = np.array([max(e[max(0, i - half):i + half + 1]) for i in range(len(e))])
     cuts = scene_cuts(t, e, d, a.spike)
     bounds = [0.0] + cuts + [float(t[-1]) + 1]
     picks = []
     for lo, hi in zip(bounds[:-1], bounds[1:]):
         seg = [i for i in range(len(t)) if lo <= t[i] < hi]
         if seg:
-            picks.extend(pick_scene(seg, t, d, e, ink, loc, raw, a))
+            picks.extend(pick_scene(seg, t, d, e, ink, raw, a))
     kept = dedup_and_prune(picks, t, raw, a)
     if not a.no_snap:
         write_snaps(video, out, kept)
